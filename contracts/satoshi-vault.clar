@@ -293,3 +293,105 @@
     (ok claimable)
   )
 )
+
+;;                        GOVERNANCE PROPOSALS                               
+
+(define-public (create-proposal
+    (title (string-ascii 256))
+    (target-asset uint)
+    (voting-period uint)
+    (quorum uint)
+  )
+  (begin
+    ;; Validation suite
+    (asserts! (valid-metadata? title) ERR_INVALID_URI)
+    (asserts! (valid-voting-period? voting-period) ERR_INVALID_DURATION)
+    (asserts! (sufficient-governance-stake? tx-sender target-asset)
+      ERR_INSUFFICIENT_STAKE
+    )
+    (asserts! (user-has-valid-compliance? tx-sender) ERR_COMPLIANCE_REQUIRED)
+
+    (let ((proposal-id (next-proposal-id)))
+      (map-set dao-proposals { proposal-id: proposal-id } {
+        title: title,
+        asset-target: target-asset,
+        start-block: stacks-block-height,
+        end-block: (+ stacks-block-height voting-period),
+        executed: false,
+        yes-votes: u0,
+        no-votes: u0,
+        quorum-needed: quorum,
+        proposer: tx-sender,
+      })
+
+      (var-set proposal-counter proposal-id)
+      (ok proposal-id)
+    )
+  )
+)
+
+;;                           VOTING MECHANISM                                
+
+(define-public (submit-vote
+    (proposal-id uint)
+    (vote-yes bool)
+    (vote-weight uint)
+  )
+  (let (
+      (proposal (unwrap! (get-dao-proposal proposal-id) ERR_PROPOSAL_NOT_EXISTS))
+      (asset-id (get asset-target proposal))
+      (voter-balance (get-holder-balance tx-sender asset-id))
+    )
+    ;; Voting eligibility checks
+    (asserts! (>= voter-balance vote-weight) ERR_INSUFFICIENT_BALANCE)
+    (asserts! (< stacks-block-height (get end-block proposal)) ERR_VOTING_CLOSED)
+    (asserts! (is-none (get-user-vote proposal-id tx-sender)) ERR_VOTE_EXISTS)
+    (asserts! (user-has-valid-compliance? tx-sender) ERR_COMPLIANCE_REQUIRED)
+
+    ;; Record vote
+    (map-set vote-history {
+      proposal-id: proposal-id,
+      voter: tx-sender,
+    } {
+      vote-weight: vote-weight,
+      voted-yes: vote-yes,
+    })
+
+    ;; Update proposal tallies
+    (map-set dao-proposals { proposal-id: proposal-id }
+      (merge proposal {
+        yes-votes: (if vote-yes
+          (+ (get yes-votes proposal) vote-weight)
+          (get yes-votes proposal)
+        ),
+        no-votes: (if vote-yes
+          (get no-votes proposal)
+          (+ (get no-votes proposal) vote-weight)
+        ),
+      })
+    )
+
+    (ok vote-weight)
+  )
+)
+
+;;                            QUERY INTERFACE                                  
+
+;;                           ASSET QUERIES                                   
+
+(define-read-only (get-digital-asset (asset-id uint))
+  (map-get? digital-assets { asset-id: asset-id })
+)
+
+(define-read-only (get-holder-balance
+    (holder principal)
+    (asset-id uint)
+  )
+  (default-to u0
+    (get balance
+      (map-get? token-holdings {
+        holder: holder,
+        asset-id: asset-id,
+      })
+    ))
+)
