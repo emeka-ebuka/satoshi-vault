@@ -97,3 +97,104 @@
     active-status: bool,
   }
 )
+
+;;                          OWNERSHIP LEDGER                                 
+
+(define-map token-holdings
+  {
+    holder: principal,
+    asset-id: uint,
+  }
+  {
+    balance: uint,
+    last-interaction: uint,
+  }
+)
+
+;;                        COMPLIANCE REGISTRY                                
+
+(define-map verified-users
+  { user: principal }
+  {
+    is-verified: bool,
+    tier-level: uint,
+    expires-at: uint,
+    verified-by: principal,
+  }
+)
+
+;;                         GOVERNANCE SYSTEM                                 
+
+(define-map dao-proposals
+  { proposal-id: uint }
+  {
+    title: (string-ascii 256),
+    asset-target: uint,
+    start-block: uint,
+    end-block: uint,
+    executed: bool,
+    yes-votes: uint,
+    no-votes: uint,
+    quorum-needed: uint,
+    proposer: principal,
+  }
+)
+
+(define-map vote-history
+  {
+    proposal-id: uint,
+    voter: principal,
+  }
+  {
+    vote-weight: uint,
+    voted-yes: bool,
+  }
+)
+
+;;                          YIELD DISTRIBUTION                               
+
+(define-map yield-claims
+  {
+    asset-id: uint,
+    claimant: principal,
+  }
+  { claimed-amount: uint }
+)
+
+;;                           PRICE ORACLES                                   
+
+(define-map price-oracles
+  { asset-id: uint }
+  {
+    price: uint,
+    decimals: uint,
+    updated-at: uint,
+    oracle: principal,
+    confidence: uint,
+  }
+)
+
+;;                            VALIDATION LAYER                                 
+
+(define-private (valid-asset-value? (value uint))
+  (and (>= value MIN_ASSET_WORTH) (<= value MAX_ASSET_WORTH))
+)
+
+(define-private (valid-voting-period? (duration uint))
+  (and (>= duration MIN_VOTE_DURATION) (<= duration MAX_VOTE_DURATION))
+)
+
+(define-private (valid-compliance-tier? (tier uint))
+  (<= tier MAX_VERIFICATION_TIER)
+)
+
+(define-private (valid-metadata? (uri (string-ascii 256)))
+  (and (> (len uri) u0) (<= (len uri) u256))
+)
+
+(define-private (sufficient-governance-stake?
+    (holder principal)
+    (asset-id uint)
+  )
+  (>= (get-holder-balance holder asset-id) MIN_GOVERNANCE_STAKE)
+)
