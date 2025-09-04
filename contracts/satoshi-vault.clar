@@ -494,3 +494,68 @@
 (define-private (next-proposal-id)
   (+ (var-get proposal-counter) u1)
 )
+
+;;                        FINANCIAL MATHEMATICS                              
+
+(define-private (calculate-yield-share
+    (holder-tokens uint)
+    (total-distributed uint)
+    (already-claimed uint)
+  )
+  (let ((ownership-ratio (/ (* holder-tokens u1000000) FRACTIONAL_UNITS)))
+    (/ (* ownership-ratio (- total-distributed already-claimed)) u1000000)
+  )
+)
+
+(define-private (calculate-voting-power
+    (holder principal)
+    (asset-id uint)
+  )
+  (let ((balance (get-holder-balance holder asset-id)))
+    (/ (* balance u100) FRACTIONAL_UNITS)
+  )
+)
+
+;;                             ADMIN FUNCTIONS                                 
+
+;;                          ORACLE MANAGEMENT                                
+
+(define-public (update-asset-price
+    (asset-id uint)
+    (new-price uint)
+    (decimals uint)
+    (confidence uint)
+  )
+  (begin
+    (asserts! (is-eq tx-sender PROTOCOL_ADMIN) ERR_ADMIN_ONLY)
+    (asserts! (is-some (get-digital-asset asset-id)) ERR_ASSET_NOT_EXISTS)
+
+    (map-set price-oracles { asset-id: asset-id } {
+      price: new-price,
+      decimals: decimals,
+      updated-at: stacks-block-height,
+      oracle: tx-sender,
+      confidence: confidence,
+    })
+
+    (ok true)
+  )
+)
+
+;;                         DIVIDEND INJECTION                                
+
+(define-public (inject-dividend-pool
+    (asset-id uint)
+    (dividend-amount uint)
+  )
+  (begin
+    (asserts! (is-eq tx-sender PROTOCOL_ADMIN) ERR_ADMIN_ONLY)
+
+    (let ((asset (unwrap! (get-digital-asset asset-id) ERR_ASSET_NOT_EXISTS)))
+      (map-set digital-assets { asset-id: asset-id }
+        (merge asset { total-dividends: (+ (get total-dividends asset) dividend-amount) })
+      )
+      (ok dividend-amount)
+    )
+  )
+)
