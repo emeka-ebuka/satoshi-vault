@@ -198,3 +198,98 @@
   )
   (>= (get-holder-balance holder asset-id) MIN_GOVERNANCE_STAKE)
 )
+
+;;                           CORE FUNCTIONALITY                                
+
+;;                         ASSET TOKENIZATION                                
+
+(define-public (create-tokenized-asset
+    (metadata-uri (string-ascii 256))
+    (asset-valuation uint)
+  )
+  (begin
+    ;; Administrative access control
+    (asserts! (is-eq tx-sender PROTOCOL_ADMIN) ERR_ADMIN_ONLY)
+
+    ;; Input validation
+    (asserts! (valid-metadata? metadata-uri) ERR_INVALID_URI)
+    (asserts! (valid-asset-value? asset-valuation) ERR_INVALID_VALUATION)
+
+    (let ((asset-id (next-asset-id)))
+      ;; Register new digital asset
+      (map-set digital-assets { asset-id: asset-id } {
+        owner: PROTOCOL_ADMIN,
+        metadata-uri: metadata-uri,
+        current-valuation: asset-valuation,
+        is-locked: false,
+        created-at: stacks-block-height,
+        last-price-update: stacks-block-height,
+        total-dividends: u0,
+        active-status: true,
+      })
+
+      ;; Initialize full token allocation
+      (map-set token-holdings {
+        holder: PROTOCOL_ADMIN,
+        asset-id: asset-id,
+      } {
+        balance: FRACTIONAL_UNITS,
+        last-interaction: stacks-block-height,
+      })
+
+      ;; Update global counters
+      (var-set asset-counter asset-id)
+      (var-set total-value-locked
+        (+ (var-get total-value-locked) asset-valuation)
+      )
+
+      (ok asset-id)
+    )
+  )
+)
+
+;;                       COMPLIANCE VERIFICATION                             
+
+(define-public (verify-user-compliance
+    (user principal)
+    (tier-level uint)
+    (validity-blocks uint)
+  )
+  (begin
+    (asserts! (is-eq tx-sender PROTOCOL_ADMIN) ERR_ADMIN_ONLY)
+    (asserts! (valid-compliance-tier? tier-level) ERR_INVALID_LEVEL)
+    (asserts! (<= validity-blocks VERIFICATION_VALIDITY) ERR_INVALID_DURATION)
+
+    (map-set verified-users { user: user } {
+      is-verified: true,
+      tier-level: tier-level,
+      expires-at: (+ stacks-block-height validity-blocks),
+      verified-by: PROTOCOL_ADMIN,
+    })
+    (ok true)
+  )
+)
+
+;;                        YIELD DISTRIBUTION                                 
+
+(define-public (claim-asset-yield (asset-id uint))
+  (let (
+      (asset (unwrap! (get-digital-asset asset-id) ERR_ASSET_NOT_EXISTS))
+      (holder-tokens (get-holder-balance tx-sender asset-id))
+      (previous-claim (get-claimed-yield asset-id tx-sender))
+      (total-yield (get total-dividends asset))
+      (claimable (calculate-yield-share holder-tokens total-yield previous-claim))
+    )
+    (asserts! (> claimable u0) ERR_INVALID_AMOUNT)
+    (asserts! (user-has-valid-compliance? tx-sender) ERR_COMPLIANCE_REQUIRED)
+
+    ;; Update claim record
+    (map-set yield-claims {
+      asset-id: asset-id,
+      claimant: tx-sender,
+    } { claimed-amount: total-yield }
+    )
+
+    (ok claimable)
+  )
+)
