@@ -395,3 +395,102 @@
       })
     ))
 )
+
+(define-read-only (get-protocol-stats)
+  {
+    total-assets: (var-get asset-counter),
+    total-proposals: (var-get proposal-counter),
+    value-locked: (var-get total-value-locked),
+  }
+)
+
+;;                         GOVERNANCE QUERIES                                
+
+(define-read-only (get-dao-proposal (proposal-id uint))
+  (map-get? dao-proposals { proposal-id: proposal-id })
+)
+
+(define-read-only (get-user-vote
+    (proposal-id uint)
+    (voter principal)
+  )
+  (map-get? vote-history {
+    proposal-id: proposal-id,
+    voter: voter,
+  })
+)
+
+(define-read-only (get-proposal-results (proposal-id uint))
+  (match (get-dao-proposal proposal-id)
+    proposal (some {
+      total-votes: (+ (get yes-votes proposal) (get no-votes proposal)),
+      approval-rate: (if (> (+ (get yes-votes proposal) (get no-votes proposal)) u0)
+        (/ (* (get yes-votes proposal) u100)
+          (+ (get yes-votes proposal) (get no-votes proposal))
+        )
+        u0
+      ),
+      quorum-met: (>= (+ (get yes-votes proposal) (get no-votes proposal))
+        (get quorum-needed proposal)
+      ),
+    })
+    none
+  )
+)
+
+;;                         COMPLIANCE QUERIES                                
+
+(define-read-only (get-user-verification (user principal))
+  (map-get? verified-users { user: user })
+)
+
+(define-read-only (user-has-valid-compliance? (user principal))
+  (match (get-user-verification user)
+    verification (and
+      (get is-verified verification)
+      (> (get expires-at verification) stacks-block-height)
+    )
+    false
+  )
+)
+
+;;                           YIELD QUERIES                                   
+
+(define-read-only (get-claimed-yield
+    (asset-id uint)
+    (claimant principal)
+  )
+  (default-to u0
+    (get claimed-amount
+      (map-get? yield-claims {
+        asset-id: asset-id,
+        claimant: claimant,
+      })
+    ))
+)
+
+(define-read-only (calculate-pending-yield
+    (asset-id uint)
+    (holder principal)
+  )
+  (let (
+      (asset (unwrap! (get-digital-asset asset-id) (err "Asset not found")))
+      (holder-tokens (get-holder-balance holder asset-id))
+      (claimed (get-claimed-yield asset-id holder))
+      (total-yield (get total-dividends asset))
+    )
+    (ok (calculate-yield-share holder-tokens total-yield claimed))
+  )
+)
+
+;;                            UTILITY FUNCTIONS                                
+
+;;                           ID GENERATORS                                   
+
+(define-private (next-asset-id)
+  (+ (var-get asset-counter) u1)
+)
+
+(define-private (next-proposal-id)
+  (+ (var-get proposal-counter) u1)
+)
